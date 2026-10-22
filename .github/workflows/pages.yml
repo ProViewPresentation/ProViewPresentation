@@ -1,0 +1,57 @@
+name: Publish ProView to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Build for the configured Pages path
+        env:
+          REPOSITORY_NAME: ${{ github.event.repository.name }}
+          OWNER: ${{ github.repository_owner }}
+          # For a custom domain, set the PAGES_BASE_PATH repository variable to '/'.
+          CONFIGURED_BASE: ${{ vars.PAGES_BASE_PATH }}
+        run: |
+          if [ -n "$CONFIGURED_BASE" ]; then
+            export BASE_PATH="$CONFIGURED_BASE"
+          elif [ "$REPOSITORY_NAME" = "$OWNER.github.io" ]; then
+            export BASE_PATH="/"
+          else
+            export BASE_PATH="/$REPOSITORY_NAME/"
+          fi
+          npm run build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy the static website
+        id: deployment
+        uses: actions/deploy-pages@v4
