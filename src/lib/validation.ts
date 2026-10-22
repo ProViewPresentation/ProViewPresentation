@@ -14,7 +14,10 @@ const theme = (value: unknown) =>
 const id = (value: unknown): value is string => text(value, 250) && value.trim().length > 0;
 const safeUrl = (value: unknown) =>
   text(value, 4000) &&
-  (/^https?:\/\//i.test(value) || /^\/(?!\/)/.test(value) || /^local:[\w-]+$/.test(value));
+  (/^https?:\/\//i.test(value) ||
+    /^\/(?!\/)/.test(value) ||
+    /^local:[\w-]+$/.test(value) ||
+    value === 'asset:images/mountain-dawn.jpg');
 function list(value: unknown, validate: (value: unknown) => boolean, maximum = 10000): boolean {
   if (!Array.isArray(value) || value.length > maximum || !value.every(validate)) return false;
   const ids = value.map((item) => record(item).id);

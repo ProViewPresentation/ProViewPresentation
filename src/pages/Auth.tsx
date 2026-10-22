@@ -1,19 +1,19 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowUpRight, Check, Eye, EyeOff, Heart, LockKeyhole } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Check, Cloud, Eye, EyeOff, Heart, LockKeyhole } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { ErrorNotice, FormField, Logo, Modal, Spinner } from '../components/UI';
 import { asset, errorMessage } from '../lib/utils';
 
 export default function AuthPage({ signup = false }: { signup?: boolean }) {
-  const { user, loading, login, signup: createAccount, enterDemo, sessionError } = useAuth();
+  const { user, loading, login, signup: createAccount, sessionError } = useAuth();
   const navigate = useNavigate();
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [policy, setPolicy] = useState(false);
   const [registered, setRegistered] = useState(false);
-  if (user?.mode === 'cloud') return <Navigate to="/workspace" replace />;
+  if (user) return <Navigate to="/workspace" replace />;
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (busy) return;
@@ -180,19 +180,13 @@ export default function AuthPage({ signup = false }: { signup?: boolean }) {
               {signup ? 'Log in' : 'Create a free account'} <ArrowUpRight size={13} />
             </Link>
           </div>
-          <div className="auth-divider">
-            <span>OR, START WITH A LOOK AROUND</span>
+          <div className="auth-cloud-note">
+            <Cloud size={18} />
+            <span>
+              <strong>Your workspace goes with you.</strong>
+              <small>Services, songs, and media saved online. Sign in from any device.</small>
+            </span>
           </div>
-          <button
-            className="button button-outline button-full"
-            onClick={() => {
-              enterDemo();
-              navigate('/workspace');
-            }}
-          >
-            Explore the local demo <ArrowUpRight size={16} />
-          </button>
-          <small className="auth-demo-note">No account needed. Demo changes stay on this device.</small>
         </div>
         <div className="auth-panel-footer">
           <LockKeyhole size={13} /> A thoughtful space for your ministry.
@@ -240,14 +234,14 @@ export default function AuthPage({ signup = false }: { signup?: boolean }) {
               HTTPS; ProView does not store your password.
             </p>
             <p>
-              Your services, songs, church settings, and media are stored on that backend and cached in this
-              browser. Uploaded media URLs may be publicly accessible. Don’t upload confidential pastoral
-              information or private recordings.
+              Your services, songs, church settings, and media are saved to your account on that backend.
+              Content is held in this browser only for the live presentation session. Uploaded media URLs may
+              be publicly accessible. Don’t upload confidential pastoral information or private recordings.
             </p>
             <p>
-              The local demo stays on this device and is not automatically transferred into a new account. You
-              can export a workspace backup in Settings. Clearing browser data removes locally stored work and
-              media.
+              The website does not run a local-demo workspace. Your browser keeps your login session and
+              temporary live-display state. Wait for “Saved to cloud” before closing a page. You can also
+              export a backup in Settings.
             </p>
             <p>
               Your church is responsible for copyright permissions, licences, and reporting. Displaying a

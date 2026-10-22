@@ -191,13 +191,10 @@ function ProductPreview({ onExplore }: { onExplore: () => void }) {
 
 export default function Landing() {
   const navigate = useNavigate();
-  const { enterDemo, user } = useAuth();
+  const { user } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [workspace, setWorkspace] = useState<'prepare' | 'present'>('prepare');
-  const openDemo = () => {
-    if (!user) enterDemo();
-    navigate('/workspace');
-  };
+  const openWorkspace = () => navigate(user ? '/workspace' : '/signup');
   const scrollTo = (id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
     setMenuOpen(false);
@@ -252,8 +249,8 @@ export default function Landing() {
               <Link className="button button-dark" to="/signup">
                 Start creating for free <ArrowUpRight size={18} />
               </Link>
-              <button className="button button-plain" onClick={openDemo}>
-                <CirclePlay size={20} /> Take a look around
+              <button className="button button-plain" onClick={() => scrollTo('how-it-works')}>
+                <CirclePlay size={20} /> See how it works
               </button>
             </div>
             <div className="hero-assurance">
@@ -279,7 +276,7 @@ export default function Landing() {
             </div>
             <div className="hero-orbit orbit-one" />
             <div className="hero-orbit orbit-two" />
-            <ProductPreview onExplore={openDemo} />
+            <ProductPreview onExplore={openWorkspace} />
             <div className="ready-card">
               <span className="ready-icon">
                 <Check size={18} />
@@ -466,7 +463,7 @@ export default function Landing() {
               </div>
             </article>
           </div>
-          <button className="text-link feature-explore" onClick={openDemo}>
+          <button className="text-link feature-explore" onClick={openWorkspace}>
             Meet your new Sunday sidekick <ArrowRight size={17} />
           </button>
         </section>
@@ -533,7 +530,7 @@ export default function Landing() {
                   ))}
                 </ul>
               </div>
-              <button className="text-link" onClick={openDemo}>
+              <button className="text-link" onClick={openWorkspace}>
                 Find your flow <ArrowUpRight size={17} />
               </button>
             </div>
@@ -604,7 +601,7 @@ export default function Landing() {
                     <span>
                       <ShieldCheck size={15} /> Master slides protected
                     </span>
-                    <button onClick={openDemo}>
+                    <button onClick={openWorkspace}>
                       Open operator <ArrowRight size={14} />
                     </button>
                   </div>
@@ -668,13 +665,13 @@ export default function Landing() {
           <div className="faq-list">
             <Accordion title="Wait, is it really free?">
               Yes. ProView has no subscriptions, paid tiers, or credit-card requirement. An account gives you
-              a cloud workspace; the local demo lets you explore immediately. Media uploads are limited to 50
-              MB per file by the backend.
+              your own cloud workspace. Services, songs, and media are saved to your account, so you can sign
+              in from another device. Media uploads are limited to 50 MB per file.
             </Accordion>
             <Accordion title="Do I need to install anything?">
               No. ProView runs in a modern browser. Open the audience display in a second window and move it
-              onto your projector. The local demo stores your service in this browser, so you can return to it
-              later.
+              onto your projector. Your account and workspace are powered by BreadBackend; GitHub Pages hosts
+              the website. No software installation or local server is needed.
             </Accordion>
             <Accordion title="Can our volunteers make changes during a service?">
               Absolutely. The operator can adjust text, swap a background, reflow a long passage, or add a
@@ -723,7 +720,7 @@ export default function Landing() {
           </div>
           <div className="footer-links">
             <button onClick={() => scrollTo('features')}>The good stuff</button>
-            <button onClick={openDemo}>Explore the demo</button>
+            <button onClick={openWorkspace}>Open your workspace</button>
             <Link to="/login">Log in</Link>
             <Link to="/signup">
               Create an account <ArrowUpRight size={13} />

@@ -1,5 +1,5 @@
 import type { ServiceItem, Song, WorkspaceData, Slide } from './types';
-import { asset, makeSlides } from './utils';
+import { makeSlides } from './utils';
 
 export const sampleSongs: Song[] = [
   {
@@ -295,7 +295,7 @@ export function createSeed(churchName = 'Grace Community', name = 'Friend'): Wor
         id: 'media-mountain',
         name: 'First light — mountain sunrise',
         type: 'image',
-        url: asset('images/mountain-dawn.jpg'),
+        url: 'asset:images/mountain-dawn.jpg',
         size: 0,
         createdAt: '2026-10-22T00:00:00Z',
       },

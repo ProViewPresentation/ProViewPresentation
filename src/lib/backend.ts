@@ -35,6 +35,13 @@ declare global {
     BreadClient?: new (config: { baseUrl: string; apiKey: string }) => BreadSDK;
   }
 }
+type BreadConstructor = new (config: { baseUrl: string; apiKey: string }) => BreadSDK;
+// A classic SDK may declare `class BreadClient` in the global lexical scope
+// without assigning window.BreadClient. Support both documented script forms.
+declare const BreadClient: BreadConstructor | undefined;
+function sdkConstructor(): BreadConstructor | undefined {
+  return window.BreadClient || (typeof BreadClient !== 'undefined' ? BreadClient : undefined);
+}
 let client: BreadSDK | null = null;
 let sdkPromise: Promise<void> | null = null;
 
@@ -62,7 +69,7 @@ export async function withTimeout<T>(promise: Promise<T>, ms = 15000): Promise<T
 
 export async function getBread(): Promise<BreadSDK> {
   if (client) return client;
-  if (!window.BreadClient) {
+  if (!sdkConstructor()) {
     if (!sdkPromise) {
       sdkPromise = new Promise<void>((resolve, reject) => {
         const existing = document.querySelector<HTMLScriptElement>('#bread-sdk');
@@ -74,13 +81,11 @@ export async function getBread(): Promise<BreadSDK> {
         const timeout = setTimeout(() => {
           script.remove();
           sdkPromise = null;
-          reject(
-            new Error('We couldn’t reach the account service. Try again shortly, or explore the local demo.'),
-          );
+          reject(new Error('We couldn’t reach the account service. Check your connection and try again.'));
         }, 12000);
         script.onload = () => {
           clearTimeout(timeout);
-          if (window.BreadClient) resolve();
+          if (sdkConstructor()) resolve();
           else {
             sdkPromise = null;
             reject(new Error('The account service could not be loaded. Please try again.'));
@@ -90,19 +95,16 @@ export async function getBread(): Promise<BreadSDK> {
           clearTimeout(timeout);
           sdkPromise = null;
           script.remove();
-          reject(
-            new Error(
-              'We couldn’t reach the account service. Check your connection, or explore the local demo.',
-            ),
-          );
+          reject(new Error('We couldn’t reach the account service. Check your connection and try again.'));
         };
         document.head.appendChild(script);
       });
     }
     await sdkPromise;
   }
-  if (!window.BreadClient) throw new Error('Account service unavailable. Please try again.');
-  client = new window.BreadClient({ baseUrl: backendConfig.baseUrl, apiKey: backendConfig.apiKey });
+  if (!sdkConstructor()) throw new Error('Account service unavailable. Please try again.');
+  const Constructor = sdkConstructor()!;
+  client = new Constructor({ baseUrl: backendConfig.baseUrl, apiKey: backendConfig.apiKey });
   return client;
 }
 
@@ -116,7 +118,8 @@ function unwrap(value: unknown): RecordValue {
 export function normalizeUser(value: unknown): User {
   const record = unwrap(value);
   const data = record.user ? object(record.user) : record;
-  const id = data.id ?? data._id ?? data.uid;
+  const rawId = data.id ?? data._id ?? data.uid;
+  const id = typeof rawId === 'number' && Number.isSafeInteger(rawId) ? String(rawId) : rawId;
   if (typeof id !== 'string' || !id)
     throw new Error('The server did not return a valid account. Please try signing in again.');
   const email = typeof data.email === 'string' ? data.email : '';
@@ -196,7 +199,7 @@ export async function loadCloudWorkspace(
     inner.records,
   ].find(Array.isArray);
   if (!Array.isArray(rows))
-    throw new Error('The server returned an unexpected workspace response. Your local changes are safe.');
+    throw new Error('The server returned an unexpected workspace response. No cloud data has been changed.');
   // IMPORTANT: ownerId filtering is defence in depth, NOT authorisation.
   // BreadBackend must enforce authenticated owner-only collection/file access.
   for (const row of rows) {

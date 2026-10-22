@@ -3,7 +3,6 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import {
   ArrowUpRight,
   BookOpen,
-  Check,
   ChevronDown,
   Cloud,
   CloudOff,
@@ -23,8 +22,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useWorkspace } from '../context/WorkspaceContext';
-import { IconButton, Logo, Modal, Spinner } from '../components/UI';
-import { cn } from '../lib/utils';
+import { IconButton, Logo, Modal, Spinner, useToast } from '../components/UI';
+import { cn, errorMessage } from '../lib/utils';
 
 const navigation = [
   { label: 'Overview', path: '/workspace', icon: LayoutDashboard, end: true },
@@ -35,8 +34,10 @@ const navigation = [
   { label: 'Slide themes', path: '/workspace/themes', icon: Palette },
 ];
 export default function WorkspaceLayout() {
-  const { user, logout } = useAuth();
-  const { data, status, syncError, retrySync } = useWorkspace();
+  const { logout } = useAuth();
+  const { data, status, syncError, retrySync, flush } = useWorkspace();
+  const { toast } = useToast();
+  const [logoutWarning, setLogoutWarning] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -85,7 +86,17 @@ export default function WorkspaceLayout() {
     .filter((item) => item.title.toLowerCase().includes(search.toLowerCase()))
     .slice(0, 9);
   return (
-    <div className="workspace-shell">
+    <div
+      className="workspace-shell"
+      onClickCapture={(event) => {
+        const link = (event.target as HTMLElement).closest('a');
+        if (link?.hash !== '#/' || status === 'synced') return;
+        event.preventDefault();
+        void flush()
+          .then(() => navigate('/'))
+          .catch((error) => toast(errorMessage(error), 'error'));
+      }}
+    >
       {mobileOpen && (
         <button
           className="sidebar-backdrop"
@@ -157,14 +168,18 @@ export default function WorkspaceLayout() {
             <span className="user-avatar">{data.settings.name.slice(0, 2).toUpperCase()}</span>
             <span>
               <strong>{data.settings.name}</strong>
-              <small>{user?.mode === 'demo' ? 'Local demo · Admin' : 'Workspace owner'}</small>
+              <small>Workspace owner</small>
             </span>
             <IconButton
               label="Log out"
               icon={LogOut}
               onClick={async () => {
-                await logout();
-                navigate('/');
+                try {
+                  await flush();
+                  await logout();
+                } catch {
+                  setLogoutWarning(true);
+                }
               }}
             />
           </div>
@@ -206,39 +221,16 @@ export default function WorkspaceLayout() {
               title={status === 'error' ? syncError : undefined}
             >
               {status === 'saving' ? (
-                <Spinner label="Saving" />
+                <Spinner label="Saving to cloud" />
               ) : (
                 <>
-                  {status === 'error' ? (
-                    <CloudOff size={15} />
-                  ) : user?.mode === 'demo' ? (
-                    <Check size={15} />
-                  ) : (
-                    <Cloud size={15} />
-                  )}
-                  <span>
-                    {status === 'error'
-                      ? 'Retry sync'
-                      : user?.mode === 'demo'
-                        ? 'Saved locally'
-                        : 'All changes saved'}
-                  </span>
+                  {status === 'error' ? <CloudOff size={15} /> : <Cloud size={15} />}
+                  <span>{status === 'error' ? 'Retry cloud save' : 'Saved to cloud'}</span>
                 </>
               )}
             </button>
           </div>
         </header>
-        {user?.mode === 'demo' && (
-          <div className="demo-banner">
-            <span>
-              <span className="green-dot" /> A little look around. You’re in the local demo — changes stay on
-              this device.
-            </span>
-            <Link to="/signup">
-              Make yourself at home <ArrowUpRight size={14} />
-            </Link>
-          </div>
-        )}
         {status === 'error' && (
           <div className="sync-banner" role="alert">
             <CloudOff size={17} />
@@ -256,6 +248,33 @@ export default function WorkspaceLayout() {
           </span>
         </footer>
       </div>
+      {logoutWarning && (
+        <Modal
+          title="Some changes aren’t saved yet."
+          subtitle="The backend hasn’t confirmed your latest edits."
+          onClose={() => setLogoutWarning(false)}
+        >
+          <div className="modal-fields">
+            <p className="muted">
+              Keep this page open and retry the cloud save to preserve your work, or sign out and discard the
+              unsaved changes.
+            </p>
+          </div>
+          <div className="modal-footer">
+            <button className="button button-outline" onClick={() => setLogoutWarning(false)}>
+              Keep working
+            </button>
+            <button
+              className="button button-danger"
+              onClick={async () => {
+                await logout();
+              }}
+            >
+              Sign out anyway
+            </button>
+          </div>
+        </Modal>
+      )}
       {searchOpen && (
         <Modal
           title="A little help finding things."

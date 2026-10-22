@@ -142,3 +142,9 @@ describe('stage timing', () => {
     expect(timeString(3661)).toBe('61:01');
   });
 });
+
+describe('backend account identifiers', () => {
+  it('accepts numeric IDs returned by a backend without inventing an identity', () => {
+    expect(normalizeUser({ user: { id: 42, email: 'owner@church.org' } }).id).toBe('42');
+  });
+});
