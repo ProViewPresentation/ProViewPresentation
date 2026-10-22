@@ -1,38 +1,16 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
+import { CloudServer, signUp, signIn, cloudSaved } from '../support/cloud';
 
-async function demo(page: Page) {
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Take a look around' }).click();
-  await expect(page.getByRole('heading', { name: /Good to see you/ })).toBeVisible();
-}
-const workspace = (page: Page) =>
-  page.evaluate(() => JSON.parse(localStorage.getItem('pv.workspace.local-demo')!));
-
-async function mockBread(page: Page, failRead = false) {
-  await page.addInitScript({
-    content: `
-    window.__breadCalls = [];
-    window.BreadClient = class {
-      constructor(config) { window.__breadConfig = config; }
-      auth = {
-        signup: async (email, password) => { window.__breadCalls.push({op:'signup', email}); if (email === 'taken@church.org') throw new Error('This email is already registered.'); return {id:'test-account', email}; },
-        login: async (email, password) => { window.__breadCalls.push({op:'login', email}); if(password === 'wrongpass') throw new Error('Email or password is incorrect.'); localStorage.setItem('bread-test-token', 'test-session-only'); return {user:{id:'test-account', email}}; },
-        me: async () => { if (!localStorage.getItem('bread-test-token')) throw new Error('Session expired'); return {id:'test-account',email:'alex@church.org'}; }
-      };
-      collection(name) { return {
-        get: async () => { window.__breadCalls.push({op:'get',name}); ${failRead ? "throw new Error('Workspace service is offline');" : "return JSON.parse(localStorage.getItem('pv.test.records') || '[]');"} },
-        create: async (data) => { const row={id:'test-workspace',...data}; localStorage.setItem('pv.test.records',JSON.stringify([row])); window.__breadCalls.push({op:'create',name}); return row; },
-        update: async (id,data) => { const rows=JSON.parse(localStorage.getItem('pv.test.records')||'[]'); localStorage.setItem('pv.test.records',JSON.stringify(rows.map(row=>row.id===id?{...row,...data}:row))); window.__breadCalls.push({op:'update',name,id}); return {id,...data}; }
-      }; }
-    };
-  `,
-  });
-}
+let server: CloudServer;
+test.beforeEach(async ({ context }) => {
+  server = new CloudServer();
+  await server.attach(context);
+});
 
 test('landing links, feature tabs, and FAQs work', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('/');
+  await page.goto('./');
   await expect(page.getByRole('heading', { name: 'Less distraction. More connection.' })).toBeVisible();
   await page.getByRole('button', { name: 'The good stuff', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: 'Everything you need. Nothing in the way.' })).toBeVisible();
@@ -46,7 +24,7 @@ test('landing links, feature tabs, and FAQs work', async ({ page }) => {
 });
 
 test('create, reorder, edit, and retain a service collection', async ({ page }) => {
-  await demo(page);
+  await signUp(page);
   await page.getByRole('button', { name: 'Create a service' }).click();
   await page.getByLabel('Service name').fill('Evening of hope');
   await page.getByLabel('Date', { exact: true }).fill('2026-11-01');
@@ -67,23 +45,26 @@ test('create, reorder, edit, and retain a service collection', async ({ page }) 
     .getByRole('button', { name: /Amazing Grace/ })
     .click();
   await page.getByRole('button', { name: 'Move item up', exact: true }).click();
-  let saved = await workspace(page);
+  await cloudSaved(page);
+  let saved = server.workspace();
   let service = saved.services.find((item: { title: string }) => item.title === 'Evening of hope');
   expect(service.items[0].title).toBe('Amazing Grace');
   expect(service.items[1].slides[0].text).toBe('Everyone belongs here.');
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Evening of hope' })).toBeVisible();
-  saved = await workspace(page);
+  await cloudSaved(page);
+  saved = server.workspace();
   service = saved.services.find((item: { title: string }) => item.title === 'Evening of hope');
   expect(service.items).toHaveLength(2);
 });
 
 test('songs and CCLI credits flow into services, while source edits stay independent', async ({ page }) => {
-  await demo(page);
-  await page.goto('/#/workspace/settings');
+  await signUp(page);
+  await page.goto('./#/workspace/settings');
   await page.getByLabel('Your church’s CCLI licence number').fill('987654');
   await page.getByRole('button', { name: 'Save the details' }).click();
-  await page.goto('/#/workspace/songs');
+  await cloudSaved(page);
+  await page.goto('./#/workspace/songs');
   await page.getByRole('button', { name: 'Add a song', exact: true }).click();
   await page.getByLabel('Song title').fill('A new morning');
   await page.getByLabel('Writer / author').fill('Alex Morgan');
@@ -95,7 +76,8 @@ test('songs and CCLI credits flow into services, while source edits stay indepen
   const row = page.locator('.song-row').filter({ hasText: 'A new morning' });
   await row.getByRole('button', { name: 'Add to service', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Add to service', exact: true }).click();
-  const saved = await workspace(page);
+  await cloudSaved(page);
+  const saved = server.workspace();
   const item = saved.services[0].items.at(-1);
   expect(item.title).toBe('A new morning');
   expect(item.slides[0].credit).toContain('CCLI Licence #987654');
@@ -103,12 +85,13 @@ test('songs and CCLI credits flow into services, while source edits stay indepen
   await row.getByRole('button', { name: 'Edit A new morning' }).click();
   await page.getByLabel('Song lyrics').fill('Only the master lyrics change.');
   await page.getByRole('button', { name: 'Save song' }).click();
-  expect((await workspace(page)).services[0].items.at(-1).slides[0].text).toContain('A new morning');
+  await cloudSaved(page);
+  expect(server.workspace().services[0].items.at(-1).slides[0].text).toContain('A new morning');
 });
 
 test('full Bible reference lookup, translation selection, and slide addition', async ({ page }) => {
-  await demo(page);
-  await page.goto('/#/workspace/scripture');
+  await signUp(page);
+  await page.goto('./#/workspace/scripture');
   await page.getByLabel('Scripture reference').fill('Isaiah 40:28-31');
   await page.getByRole('button', { name: 'Find passage', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Isaiah 40:28–31' })).toBeVisible();
@@ -118,7 +101,8 @@ test('full Bible reference lookup, translation selection, and slide addition', a
   await expect(page.locator('.passage-verses')).toContainText('Jehovah');
   await page.getByRole('button', { name: /Add \d+ slides to a service/ }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Add to service', exact: true }).click();
-  expect((await workspace(page)).services[0].items.at(-1).title).toBe('Isaiah 40:28–31 (ASV)');
+  await cloudSaved(page);
+  expect(server.workspace().services[0].items.at(-1).title).toBe('Isaiah 40:28–31 (ASV)');
   await page.getByLabel('Scripture reference').fill('John 500:99');
   await page.getByRole('button', { name: 'Find passage', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('John has 21 chapters');
@@ -128,9 +112,9 @@ test('live micro-edits, keyboard navigation, audience and stage syncing never mu
   page,
   context,
 }) => {
-  await demo(page);
-  const original = (await workspace(page)).services[0].items[0].slides[0].text;
-  await page.goto('/#/operator/sunday-gathering');
+  await signUp(page);
+  const original = server.workspace().services[0].items[0].slides[0].text;
+  await page.goto('./#/operator/sunday-gathering');
   await page.getByRole('button', { name: 'Quick slide adjustments' }).click();
   await page.getByLabel('Live slide text').fill('A live-only thought.');
   await page.getByRole('button', { name: 'Close quick adjustments' }).click();
@@ -163,16 +147,14 @@ test('live micro-edits, keyboard navigation, audience and stage syncing never mu
   await page.getByLabel('Countdown in minutes').fill('1');
   await page.getByRole('button', { name: 'Start stage countdown' }).click();
   await expect(stage.locator('.stage-timer')).toContainText('YOUR COUNTDOWN');
-  expect((await workspace(page)).services[0].items[0].slides[0].text).toBe(original);
+  expect(server.workspace().services[0].items[0].slides[0].text).toBe(original);
   await page.getByRole('button', { name: 'End live', exact: true }).click();
   await expect(audience.locator('.slide-view')).toHaveClass(/slide-black/);
 });
 
-test('media uploads persist locally, invalid types are rejected, and unused files can be removed', async ({
-  page,
-}) => {
-  await demo(page);
-  await page.goto('/#/workspace/media');
+test('media uploads use the backend, persist after reload, and can be removed', async ({ page }) => {
+  await signUp(page);
+  await page.goto('./#/workspace/media');
   await page.locator('input[type=file]').setInputFiles({
     name: 'sunday.png',
     mimeType: 'image/png',
@@ -182,6 +164,8 @@ test('media uploads persist locally, invalid types are rejected, and unused file
     ),
   });
   await expect(page.locator('.media-card').filter({ hasText: 'sunday.png' })).toBeVisible();
+  await cloudSaved(page);
+  expect(server.files.size).toBe(1);
   await page.reload();
   const card = page.locator('.media-card').filter({ hasText: 'sunday.png' });
   await expect(card).toBeVisible();
@@ -195,12 +179,14 @@ test('media uploads persist locally, invalid types are rejected, and unused file
   await card.getByRole('button', { name: 'Delete sunday.png' }).click();
   await page.getByRole('button', { name: 'Remove media', exact: true }).click();
   await expect(card).toHaveCount(0);
+  await cloudSaved(page);
+  expect(server.files.size).toBe(0);
 });
 
 test('backup export works and malformed nested restores do not touch existing work', async ({ page }) => {
-  await demo(page);
-  const before = await workspace(page);
-  await page.goto('/#/workspace/settings');
+  await signUp(page);
+  const before = server.workspace();
+  await page.goto('./#/workspace/settings');
   await page.getByRole('button', { name: 'Your data & backups' }).click();
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export workspace backup' }).click();
@@ -212,54 +198,89 @@ test('backup export works and malformed nested restores do not touch existing wo
     buffer: Buffer.from(JSON.stringify(invalid)),
   });
   await expect(page.locator('.toast-region')).toContainText('valid ProView workspace backup');
-  expect((await workspace(page)).services).toEqual(before.services);
+  expect(server.workspace().services).toEqual(before.services);
 });
 
-test('signup and authenticated cloud saves follow the supplied SDK contract', async ({ page }) => {
-  await mockBread(page);
-  await page.goto('/#/signup');
-  await page.getByLabel('Your name', { exact: true }).fill('Alex Morgan');
-  await page.getByLabel('Church or community', { exact: true }).fill('Hope Community');
+test('cloud accounts restore saved work in a second isolated browser, with no local workspace cache', async ({
+  page,
+  browser,
+}) => {
+  await signUp(page);
+  await page.goto('./#/workspace/settings');
+  await page.getByLabel('Church or community name').fill('Hope & Grace');
+  await page.getByRole('button', { name: 'Save the details' }).click();
+  // Logout must flush pending changes even before the autosave debounce fires.
+  await page.getByRole('button', { name: 'Log out', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Step into your workspace' })).toBeVisible();
+  expect(server.workspace().settings.churchName).toBe('Hope & Grace');
+  expect(await page.evaluate(() => localStorage.getItem('bread-test-token'))).toBeNull();
+  expect(
+    await page.evaluate(() => Object.keys(localStorage).some((key) => key.startsWith('pv.workspace.'))),
+  ).toBe(false);
+  expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain('a-good-test-password');
+
+  const secondContext = await browser.newContext({ baseURL: test.info().project.use.baseURL });
+  await server.attach(secondContext, { lexicalSDK: false });
+  const secondDevice = await secondContext.newPage();
+  await signIn(secondDevice);
+  await expect(secondDevice.locator('.church-picker')).toContainText('Hope & Grace');
+  await cloudSaved(secondDevice);
+  await secondContext.close();
+});
+
+test('unreadable cloud workspaces never fall back to old demo or cached data', async ({ page }) => {
+  server.failRead = true;
+  await page.addInitScript(() => {
+    localStorage.setItem('pv.session', 'demo');
+    localStorage.setItem(
+      'pv.workspace.local-demo',
+      JSON.stringify({ schemaVersion: 1, settings: { churchName: 'A local-only church' } }),
+    );
+  });
+  await page.goto('./#/workspace');
+  await expect(page.getByRole('button', { name: 'Step into your workspace' })).toBeVisible();
+  await page.goto('./#/signup');
+  await page.getByLabel('Your name', { exact: true }).fill('Alex');
+  await page.getByLabel('Church or community', { exact: true }).fill('Hope');
   await page.getByLabel('Email address').fill('alex@church.org');
   await page.getByLabel('Password', { exact: true }).fill('a-good-test-password');
   await page.getByRole('button', { name: 'Create my free account' }).click();
-  await expect(page.getByRole('heading', { name: 'Good to see you, Alex.' })).toBeVisible();
-  await expect(page.locator('.church-picker')).toContainText('Hope Community');
-  await page.goto('/#/workspace/settings');
-  await page.getByLabel('Church or community name').fill('Hope & Grace');
-  await page.getByRole('button', { name: 'Save the details' }).click();
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () => JSON.parse(localStorage.getItem('pv.test.records')!)[0].workspace.settings.churchName,
-      ),
-    )
-    .toBe('Hope & Grace');
-  expect(await page.evaluate(() => localStorage.getItem('pv.session'))).toBe('cloud');
-  expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain('a-good-test-password');
-  await page.getByRole('button', { name: 'Log out', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Less distraction. More connection.' })).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem('bread-test-token'))).toBeNull();
-});
-
-test('an unreadable cloud workspace is not silently replaced with demo content', async ({ page }) => {
-  await mockBread(page, true);
-  await page.goto('/#/login');
-  await page.getByLabel('Email address').fill('alex@church.org');
-  await page.getByLabel('Password', { exact: true }).fill('a-good-test-password');
-  await page.getByRole('button', { name: 'Step into your workspace' }).click();
   await expect(
     page.getByRole('heading', { name: 'Your workspace needs a little connection.' }),
   ).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem('pv.workspace.test-account'))).toBeNull();
-  expect(await page.evaluate(() => localStorage.getItem('pv.test.records'))).toBeNull();
+  expect(server.documents.size).toBe(0);
+  await expect(page.getByText('A local-only church', { exact: true })).toHaveCount(0);
 });
 
-test('backend connection failures and invalid credentials are honest errors, never fake accounts', async ({
-  page,
-}) => {
-  await page.route('**/sdk/bread-client.js', (route) => route.abort());
-  await page.goto('/#/login');
+test('unconfirmed cloud saves show an error and retry the pending changes', async ({ page }) => {
+  await signUp(page);
+  server.failSave = true;
+  await page.goto('./#/workspace/settings');
+  await page.getByLabel('Church or community name').fill('A pending change');
+  await page.getByRole('button', { name: 'Save the details' }).click();
+  await expect(page.getByRole('alert')).toContainText('have not reached the cloud');
+  await expect(page.getByRole('button', { name: 'Saved to cloud', exact: true })).toHaveCount(0);
+  expect(server.workspace().settings.churchName).toBe('Grace Community');
+  server.failSave = false;
+  await page.getByRole('button', { name: 'Retry cloud save', exact: true }).click();
+  await cloudSaved(page);
+  expect(server.workspace().settings.churchName).toBe('A pending change');
+});
+
+test('edits made during a slow save are serialized without losing newer values', async ({ page }) => {
+  await signUp(page);
+  server.saveDelay = 500;
+  await page.goto('./#/workspace/services/sunday-gathering');
+  await page.getByLabel('Slide text', { exact: true }).fill('The first version');
+  await expect.poll(() => server.calls.filter((call) => call.method === 'PUT').length).toBeGreaterThan(0);
+  await page.getByLabel('Slide text', { exact: true }).fill('The latest version');
+  await cloudSaved(page);
+  expect(server.workspace().services[0].items[0].slides[0].text).toBe('The latest version');
+});
+
+test('backend connection failures are honest errors, never fake accounts', async ({ page, context }) => {
+  await context.route('**/sdk/bread-client.js', (route) => route.abort());
+  await page.goto('./#/login');
   await page.getByLabel('Email address').fill('alex@church.org');
   await page.getByLabel('Password', { exact: true }).fill('a-good-test-password');
   await page.getByRole('button', { name: 'Step into your workspace' }).click();
@@ -267,9 +288,19 @@ test('backend connection failures and invalid credentials are honest errors, nev
   expect(await page.evaluate(() => localStorage.getItem('pv.session'))).toBeNull();
 });
 
+test('wrong passwords do not create sessions or workspaces', async ({ page }) => {
+  await page.goto('./#/login');
+  await page.getByLabel('Email address').fill('nobody@church.org');
+  await page.getByLabel('Password', { exact: true }).fill('incorrect-password');
+  await page.getByRole('button', { name: 'Step into your workspace' }).click();
+  await expect(page.getByRole('alert')).toContainText('Email or password is incorrect');
+  expect(await page.evaluate(() => localStorage.getItem('pv.session'))).toBeNull();
+  expect(server.documents.size).toBe(0);
+});
+
 test('mobile layouts fit, navigation opens, and the form is usable', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await demo(page);
+  await signUp(page);
   await page.getByRole('button', { name: 'Open sidebar' }).click();
   await page.getByRole('link', { name: 'Services', exact: false }).first().click();
   await expect(page.getByRole('heading', { name: 'Services, in good order.' })).toBeVisible();
@@ -282,11 +313,28 @@ test('mobile layouts fit, navigation opens, and the form is usable', async ({ pa
     '/#/workspace/media',
     '/#/workspace/settings',
     '/#/operator/sunday-gathering',
-    '/#/signup',
   ]) {
-    await page.goto(path);
+    await page.goto(`.${path}`);
     await page.locator('h1').first().waitFor();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
   }
+  await page.goto('./#/workspace');
+  await page.getByRole('button', { name: 'Open sidebar' }).click();
+  await page.getByRole('button', { name: 'Log out', exact: true }).click();
+  await page.goto('./#/signup');
   await expect(page.getByRole('button', { name: 'Create my free account' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /local demo/i })).toHaveCount(0);
+});
+
+test('the bundled media resolves under the deployed project path', async ({ page }) => {
+  await signUp(page);
+  await page.goto('./#/workspace/media');
+  const image = page.locator('.media-card').first().locator('img');
+  await expect
+    .poll(() => image.evaluate((img) => (img as HTMLImageElement).naturalWidth))
+    .toBeGreaterThan(100);
+  expect(await image.getAttribute('src')).toBe(
+    `${new URL(test.info().project.use.baseURL as string).pathname}images/mountain-dawn.jpg`,
+  );
+  expect(server.workspace().media[0].url).toBe('asset:images/mountain-dawn.jpg');
 });

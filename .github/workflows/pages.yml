@@ -12,35 +12,34 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
+
+env:
+  VITE_BREAD_BASE_URL: https://kaidaz18.duckdns.org/api/v1/proview
+  VITE_BREAD_SDK_URL: https://kaidaz18.duckdns.org/sdk/bread-client.js
+  # This is the publishable browser key supplied for ProView, not an admin secret.
+  VITE_BREAD_PUBLIC_KEY: pk_live_kzIciEsEmutDNA22zmUkx14Y
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Read the actual Pages URL and base path
+        id: pages
+        uses: actions/configure-pages@v5
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: npm test
-      - name: Build for the configured Pages path
+      - name: Build the backend-connected website for GitHub Pages
         env:
-          REPOSITORY_NAME: ${{ github.event.repository.name }}
-          OWNER: ${{ github.repository_owner }}
-          # For a custom domain, set the PAGES_BASE_PATH repository variable to '/'.
-          CONFIGURED_BASE: ${{ vars.PAGES_BASE_PATH }}
-        run: |
-          if [ -n "$CONFIGURED_BASE" ]; then
-            export BASE_PATH="$CONFIGURED_BASE"
-          elif [ "$REPOSITORY_NAME" = "$OWNER.github.io" ]; then
-            export BASE_PATH="/"
-          else
-            export BASE_PATH="/$REPOSITORY_NAME/"
-          fi
-          npm run build
-      - uses: actions/configure-pages@v5
+          BASE_PATH: ${{ steps.pages.outputs.base_path }}/
+        run: npm run build
+      - run: node scripts/write-deployment.mjs
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
@@ -49,9 +48,28 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy the static website
+      - name: Publish the website
         id: deployment
         uses: actions/deploy-pages@v4
+
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    needs: deploy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Verify the public site and real backend from the Pages origin
+        env:
+          PROVIEW_SITE_URL: ${{ needs.deploy.outputs.page_url }}
+        run: node scripts/check-deployment.mjs

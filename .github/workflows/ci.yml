@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -22,9 +22,16 @@ jobs:
       - run: npm ci
       - run: npm run format:check
       - run: npm test
-      - run: npm run build
+      - name: Build using the Pages project subpath
+        env:
+          BASE_PATH: /ProViewPresentation/
+        run: npm run build
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      - name: Test the production build with an HTTP backend contract fixture
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:4173/ProViewPresentation/
+          PLAYWRIGHT_WEB_SERVER_COMMAND: npm run preview -- --port 4173
+        run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

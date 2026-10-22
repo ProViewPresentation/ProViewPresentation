@@ -1,92 +1,70 @@
 # ProView
 
-**Less distraction. More connection.**
+**Less distraction. More connection.** Free church presentation software, hosted on GitHub Pages and powered by the existing BreadBackend service.
 
-A free, browser-based church presentation workspace with a public landing page, account creation through BreadBackend, a preparation workspace, and a separate live operator deck. Built with React 19, TypeScript, and Vite. No subscriptions, billing code, paid themes, or credit-card forms.
+**Website:** [proviewpresentation.github.io/ProViewPresentation](https://proviewpresentation.github.io/ProViewPresentation/) (available after the Pages deployment succeeds).
 
-## Run locally
+## For visitors
 
-Requires **Node.js 22.17 or newer**.
+Open the website, create a free account, and sign in. There is no download, local server, payment, or device-only demo to set up.
 
-```sh
-npm ci
-npm run dev
-```
+- Accounts, services, songs, church settings, and uploaded media use **BreadBackend**.
+- The workspace is fetched from the backend every time you sign in or reload. Sign in to the same account on another device to open the same saved work.
+- “**Saved to cloud**” appears only after the backend confirms the write. Failed saves show an error and a retry control. Keep the page open until the save succeeds.
+- The site does not save a workspace database in localStorage or media files in IndexedDB. The browser retains the SDK login session and temporary live-presentation state, not an alternative local workspace.
+- Old demo session markers no longer grant access, and old local caches are never silently uploaded to a new account.
 
-Open the URL printed by Vite. The development server binds to `0.0.0.0`; Arena preview hosts are allowed. Click **Take a look around** on the landing page to enter the explicitly labelled local demo. No backend or account is required for that mode.
+## Publish on GitHub Pages
 
-```sh
-npm run build          # Type-check and generate dist/
-npm run preview        # Serve the production build
-npm test               # 24 unit tests
-npm run test:e2e        # Playwright browser tests
-npm run format:check   # Source formatting
-```
+### One-time repository setting
 
-Before the first normal browser test run:
+In **[Settings → Pages](https://github.com/ProViewPresentation/ProViewPresentation/settings/pages)**, set **Build and deployment → Source → GitHub Actions**.
 
-```sh
-npx playwright install --with-deps chromium
-```
+This must be enabled by a GitHub account or integration with Pages administration permission. If an integration returns `403 Resource not accessible by integration`, use the repository settings directly; do not create or paste access tokens into chat or source files.
 
-`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` can point to an existing Chromium binary in constrained environments. Browser tests use local mocks for the supplied SDK contract; they **do not** create real backend accounts.
+### Automatic deployment
 
-## What is implemented
+The `Publish ProView to GitHub Pages` workflow runs after a push/merge to `main`. It can also be run manually from **Actions → Publish ProView to GitHub Pages → Run workflow**.
 
-| Area           | Included                                                                                                                                                                           |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Public website | Responsive landing page, interactive product preview, preparation/presentation tabs, FAQs, login and signup                                                                        |
-| Accounts       | BreadBackend SDK signup, login, session validation, logout, loading states, validation and honest connection errors                                                                |
-| Preparation    | Overview, service collections, editable service details, drag/drop and keyboard-button reordering, duplicate/delete, nested slides within items                                    |
-| Slides         | Text, subtitle, private speaker notes, font size, six themes, image/video backgrounds, individual slide ordering and smart word-boundary reflow                                    |
-| Songs          | Add/edit/delete, search, tags, plain-text import, public-domain example hymns, credit and church CCLI licence display                                                              |
-| Scripture      | Two complete, on-demand 66-book libraries: KJV and ASV (1901); chapter and verse-range lookup, common abbreviations, translation selection and configurable text flow              |
-| Media          | Image and video upload, preview, local IndexedDB persistence, cloud upload/delete, file-type validation, 50 MB per-file limit, protection against deleting files used by a service |
-| Live operator  | Separate session copy, slide navigation, keyboard shortcuts, blackout, text clear, micro-edits, theme/media swaps, reflow, last-minute items, item reordering, session reset       |
-| Displays       | Separate audience and confidence-monitor windows, synchronized using BroadcastChannel with a storage fallback, stage notes, next-slide preview, elapsed time and countdown         |
-| Data           | Account-scoped local caches, debounced serialized cloud saves, explicit sync errors/retry, validated JSON backup export/restore, demo reset                                        |
-| Quality        | Accessible form labels, focus-trapped dialogs, keyboard controls, reduced-motion handling, mobile layouts, unit/browser tests, CI and GitHub Pages workflows                       |
+The workflow:
 
-### A service is a collection
+1. Reads the actual Pages URL and base path using `actions/configure-pages`.
+2. Installs dependencies and runs the unit tests.
+3. Builds the production website with the provided backend configuration.
+4. Publishes `dist/` through GitHub Pages.
+5. Checks the public website, deployed commit, signup page, and real SDK/session endpoint **from the Pages origin**. This read-only probe does not create a test account or modify anyone’s data.
 
-Each service contains ordered song, scripture, sermon, announcement, or media items. Each item contains its own ordered slides. This release supports **one level of grouped slides**, not arbitrary-depth folder trees.
+The project path `/ProViewPresentation/` is handled by Vite and hash routing. The bundled background, self-hosted fonts, full Bible libraries, and audience/stage links work under that prefix. A custom domain's path is read from Pages configuration rather than hard-coded into the app.
 
-### The master stays safe
+GitHub Pages serves the frontend only. Browser requests go directly over HTTPS to the existing backend; no localhost proxy, GitHub-hosted API server, or local database is involved.
 
-Opening a service in the live deck makes a separate copy. Operator changes never call the workspace save functions. The session copy is retained in **sessionStorage** for that tab and service version. Resetting the session reloads the original collection. Returning to preparation does not silently commit live changes.
+## Backend configuration
 
-Keyboard shortcuts, when not typing in a form:
+The production deployment explicitly uses:
 
-- **Right arrow / Space:** next slide
-- **Left arrow:** previous slide
-- **B:** blackout / restore
-- **C:** clear / restore text
-- **L:** go live / end live
-- **?:** shortcut guide
+- API: `https://kaidaz18.duckdns.org/api/v1/proview`
+- SDK: `https://kaidaz18.duckdns.org/sdk/bread-client.js`
+- The publishable `pk_live_…` project key provided for ProView.
 
-Space keeps its normal activation behaviour when a button or link is focused. Arrow, blackout, and text-clear shortcuts remain available from buttons.
+The SDK loads on demand. Both classic `class BreadClient` global declarations and SDKs that assign `window.BreadClient` are supported. Signup, login, session checks, collection CRUD, and file uploads use the SDK’s documented methods.
 
-## BreadBackend integration
-
-The supplied configuration is used by default. An optional `.env.local` can override the values in `.env.example`:
+For another environment, copy `.env.example` to `.env.local` and override:
 
 ```env
 VITE_BREAD_BASE_URL=https://kaidaz18.duckdns.org/api/v1/proview
 VITE_BREAD_SDK_URL=https://kaidaz18.duckdns.org/sdk/bread-client.js
-VITE_BREAD_PUBLIC_KEY=your_public_pk_key
+VITE_BREAD_PUBLIC_KEY=your_publishable_project_key
 ```
 
-The provided `pk_live_…` key is a **publishable browser key**, not a secret. Never put an admin, service-role, or private key in a `VITE_*` variable.
+`VITE_*` values are public browser configuration. **Never put a server/admin/service-role secret in them.** Passwords are sent to the backend, not stored by the application. The SDK owns the authentication token; logout calls its logout method if present and removes observed SDK session-storage keys as a fallback.
 
-The SDK is loaded on demand when an account operation is requested. Passwords are sent to its authentication methods and are not stored by the application. The SDK owns authentication tokens. Logout calls the SDK's logout method when available and clears the storage keys observed during SDK authentication as a fallback.
+### Workspace schema
 
-### Cloud schema
-
-The app uses a `workspaces` collection:
+A document in the `workspaces` collection contains:
 
 ```ts
 {
-  id: string,                 // returned by BreadBackend
+  id: string,                 // generated by BreadBackend
   ownerId: string,            // authenticated account ID
   workspace: {
     schemaVersion: 1,
@@ -99,78 +77,82 @@ The app uses a `workspaces` collection:
 }
 ```
 
-Types are in `src/lib/types.ts`; nested validation is in `src/lib/validation.ts`. A workspace is created only after a successful authenticated read confirms it does not exist. An unreadable or malformed cloud workspace is **not replaced** with demo data. With a previous cache, the app explicitly shows an unsynced state; without one, it blocks editing and offers a reload.
+A first account receives starter services and public-domain songs, saved to the backend before the workspace opens. Existing accounts load their saved document. A failed read never falls back to a local cache or overwrites the backend with starter content.
 
-Media uses `bread.files.upload(file)` and `bread.files.delete(filename)`. Its filename and URL are stored in the owner's workspace. Direct media URLs follow the backend guide. The app does not list every project's files into a user's library.
+Writes are debounced and serialized. Changes made during a save are included in the next write. Signing out flushes pending changes, or offers an explicit discard option when the backend cannot save. Closing an unsaved page prompts the user. Reconnecting retries pending edits; there is no automatic device-only fallback. Concurrent preparation on multiple devices is **last-write-wins**, not collaborative merging.
 
-Cloud writes are serialized and debounced. Edits remain on the device after a failed save and show a retry control. This is **last-write-wins**, not collaborative conflict resolution: avoid simultaneous preparation on the same account from multiple devices. The live output transport is not a cloud collaboration channel.
+Media uses `bread.files.upload(file)` and `bread.files.delete(filename)`, with cloud filenames/URLs stored in the workspace. Images and videos are limited to 50 MB per file. Built-in backgrounds use portable asset references rather than URLs tied to a development server.
 
-### Required before public production use
+### Server-side responsibilities
 
-The frontend cannot create or audit backend security rules. The backend must enforce:
+The running backend must allow the Pages origin and authenticate/authorize its requests. In particular, enforce owner-only workspace access, immutable/validated ownership, and owner-only file deletion on the server. Client-side `ownerId` filtering is defence in depth, **not authorization**; a public project key alone is not an account session.
 
-1. Authentication for every workspace and private file operation.
-2. Owner-only reads and updates: authenticated user ID must match the stored `ownerId`.
-3. Ownership assigned/validated server-side on creation and immutable on update.
-4. Owner-only file deletion and appropriate upload limits and content validation.
-5. HTTPS, rate limits, and the appropriate CORS/origin configuration for your deployed website and SDK.
+The application does not alter the existing backend’s CORS, account verification, authorization, or file-serving policies. File URLs may be publicly accessible under its current serving model; only upload content you have permission to share, not confidential pastoral records.
 
-**The `ownerId` check in the client is defence in depth, not access control. A publishable API key alone is not authentication.** Do not enable public reads/writes on `workspaces`. Verify account isolation with two real accounts before production.
+## Included workflows
 
-The SDK host is outside the coding sandbox's network allowlist. Live signup, email verification behaviour, real backend response shapes, file ownership, CORS, and server authorization **have not been verified against that host**. Automated tests exercise the documented SDK methods with deterministic mocks. Browser connection failures never produce fake successful signups or a fake cloud workspace.
+- **Public website:** responsive landing page, account signup/login, feature previews, FAQs.
+- **Preparation:** service collections, grouped slides, drag/drop and button reordering, duplicate/delete, notes, themes, and defaults.
+- **Songs:** CRUD, search/tags, plain-text import, lyrics, writer/copyright/CCLI metadata.
+- **Scripture:** complete KJV and ASV (1901) libraries loaded on demand; book/chapter/verse-range lookup, abbreviations, translation choice, smart text flow.
+- **Media:** backend image/video uploads, previews, deletion, type/size validation, and protection for files referenced by a service.
+- **Live deck:** isolated session copy, quick text/background edits, reflow, last-minute items, keyboard controls, blackout and text clear.
+- **Displays:** audience and stage windows with current/next slides, private notes, elapsed time and countdown.
+- **Data:** cloud saves with accurate status/errors, validated JSON backup export/restore, and a cross-device account workflow.
 
-## Outputs and current release boundaries
+### Live presentation remains in the browser
 
-- Audience and stage views work in **the same browser/profile on the same device**. Open **Displays** in the live deck, move each window onto an extended monitor, then use Fullscreen. Allow pop-ups if requested.
-- A random per-session channel keeps separate operator sessions from accidentally sharing an output. It is **not a secure cross-device sharing token**. Copying the URL to a tablet will not relay the presentation.
-- Audience output stays black until Go live is active. Ending live, leaving the operator, or a stale/disconnected session blacks out the feed. The stage preview can show queued content and private notes while standing by.
-- Video backgrounds loop **silently** using native browser playback. Supported containers are MP4 and WebM, but codecs still depend on the browser. Audio-enabled foreground-video cueing and frame-accurate cross-window video synchronization are not included. Full media preview has native video/audio controls.
-- Capture the audience window in OBS or another external broadcast tool for streaming. **Native NDI, direct hardware video output, and remote/tablet stage synchronization require additional broadcast/relay integrations.** They are not simulated or advertised as already working.
-- There are authenticated **owner accounts**, not a complete multi-tenant church-team identity system. Preparation/operator separation protects masters by architecture, but does not constitute server-enforced multi-user roles. Staff invitations, custom roles, account recovery, and self-service account deletion need backend-supported endpoints and policies.
-- CCLI credits are displayed from user-provided metadata. ProView does **not** verify licensing, grant rights, or automatically submit CCLI usage reports. The church retains those responsibilities.
-- The local demo stores metadata in localStorage and media blobs in IndexedDB. It survives refresh, but is not a service-worker-installed offline application. Demo work is not automatically migrated at signup; export/import a backup if desired.
-- JSON backups contain media references, **not file bytes**. Local media references only work in the browser that owns the blobs. Keep original media files and re-upload when moving devices.
-- Cloud media links may be public under the supplied backend's file-serving model. Do not upload confidential pastoral information or sensitive recordings.
+Rendering is client-side, as it should be for a browser presentation app. Live edits do not modify the saved master service. They remain in a session copy until that session is reset or closed.
 
-## Publish on GitHub Pages
+Audience and stage windows synchronize in the **same browser/profile on the same computer** using BroadcastChannel with a storage-event fallback. Move those windows onto extended displays and enter fullscreen. This local display transport is separate from cloud account/workspace persistence; a copied stage URL does not yet relay to a separate tablet.
 
-A static deployment workflow is included at `.github/workflows/pages.yml`.
+Shortcuts: **Right / Space** next, **Left** previous, **B** blackout, **C** clear text, **L** go live/end live, **?** help. Shortcuts do not interfere with typing in a form.
 
-1. Review and merge the website changes into `main`.
-2. In the repository's **Settings → Pages**, set **Source** to **GitHub Actions**.
-3. Run **Publish ProView to GitHub Pages**, or push a subsequent change to `main`.
-4. Confirm the backend accepts the deployed origin and run the production checks below.
+## Current boundaries
 
-The workflow uses `/<repository-name>/` as Vite's base path for a project site. Hash routing works on static hosting without rewrite rules. For a custom domain, set the `PAGES_BASE_PATH` repository variable to `/`.
+- Native NDI, cross-device stage relays, hardware video output, and full church-team invitations/server-enforced roles require further backend/broadcast integrations.
+- Video backgrounds loop silently with browser-native codecs. Audio-enabled foreground cueing and frame-accurate multi-window video synchronization are not included. The media preview offers native video/audio controls.
+- CCLI metadata display is not a licence or an automatic usage report. Your church remains responsible for rights and reporting.
+- Collections have one level of grouped slides, not arbitrary-depth folders.
+- Account recovery and self-service account deletion need backend-supported endpoints/policies.
+- Backups contain cloud media references, not file bytes. Keep original uploads. Backups containing device-only media from the retired demo are rejected with a clear re-upload message.
 
-For another static host, run `npm run build` and serve `dist/`. Set `BASE_PATH` during the build if serving from a subdirectory. No app server, private API proxy, or browser-facing localhost endpoint is required.
+## Development and tests
 
-## Production acceptance checklist
+Requires Node.js **22.17+**.
 
-- Create two accounts using real email addresses; test login, logout, verification, and session expiry.
-- Verify workspace and file isolation **on the server**, including malicious requests that change `ownerId`.
-- Reload each account and confirm services, songs, settings, and uploaded images/video persist.
-- Disconnect/reconnect the backend and verify the unsynced status and recovery path.
-- Check projector and stage windows on real extended displays, including blackout, countdown, reconnect, and fullscreen.
-- Try the actual media codecs and hardware used for the service.
-- Confirm copyright/licence metadata and your church's separate reporting process.
-- Export a backup and keep copies of uploaded media before the first live use.
-
-## Project structure
-
-```text
-src/
-  components/      Accessible UI, slide canvas, collection/media/scripture dialogs
-  context/         Account and workspace state, cache and sync boundaries
-  lib/             Backend adapter, types, validation, Bible lookup, media, live transport
-  pages/           Public website, accounts, admin preparation, live deck, outputs
-  styles.css       Responsive ProView visual system
-public/
-  bibles/          On-demand texts and source licence
-  images/          Included AI-generated landscape background
- tests/
-  unit/            Text flow, lookup, validation, credits and account normalization
-  e2e/             Browser workflows, cloud-contract mocks, live outputs and mobile checks
+```sh
+npm ci
+npm run dev                 # Develop the cloud-connected frontend
+npm test                    # Unit tests
+npm run build               # TypeScript + production bundle
+npm run format:check
+npx playwright install --with-deps chromium
+npm run test:e2e             # HTTP SDK contract tests; no real test accounts created
 ```
 
-Bible text provenance and jurisdiction-specific notes are in `public/bibles/README.md`. The KJV and ASV libraries are intentionally lazy-loaded and excluded from the initial JavaScript bundle. Fonts are self-hosted through Fontsource; the demo and website do not depend on an external image or font CDN.
+Development uses the same backend-connected account flow as production. There is no development-only demo login. Browser tests intercept the external SDK/API with a dedicated in-process HTTP contract fixture whose records are held outside browser storage. They verify independent browser sessions, authentication failures, cloud read/save failures, serialization, media upload/deletion, live output isolation, and mobile layouts.
+
+CI also runs those tests against the **compiled production build at the Pages subpath**:
+
+```sh
+BASE_PATH=/ProViewPresentation/ npm run build
+PLAYWRIGHT_BASE_URL=http://localhost:4173/ProViewPresentation/ \
+PLAYWRIGHT_WEB_SERVER_COMMAND='npm run preview -- --port 4173' \
+npm run test:e2e
+```
+
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` may select an existing Chromium binary. The test server derives `BASE_PATH` from the test URL to match the build exactly.
+
+Local contract tests do not claim to audit the remote backend. The deployment workflow's separate public-site check exercises the real SDK and unauthenticated session response/CORS without writing records. The final production acceptance step is signing in with your real account, confirming a saved service on a second device, and trying your actual projectors/media codecs.
+
+## Source
+
+- `src/context/`: SDK authentication and backend-only workspace state/saving.
+- `src/lib/`: backend adapter, schema validation, Bible lookup, live transport, media URL resolution.
+- `src/pages/`: landing, accounts, preparation, operator, audience and stage views.
+- `public/bibles/`: lazy-loaded translation texts and source/licence notes.
+- `scripts/`: deployment metadata and real public-site verification.
+- `tests/`: unit tests and HTTP backend/browser workflow tests.
+
+Fonts are self-hosted through Fontsource. The included landscape is AI-generated. Translation provenance and jurisdiction-specific KJV rights notes are in `public/bibles/README.md`.

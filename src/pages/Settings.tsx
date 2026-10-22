@@ -14,7 +14,6 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { backendConfig, isWorkspace } from '../lib/backend';
-import { createSeed } from '../lib/seed';
 import { errorMessage, themes } from '../lib/utils';
 import type { ThemeId, WorkspaceData } from '../lib/types';
 import { FormField, Modal, useToast } from '../components/UI';
@@ -24,7 +23,6 @@ export default function Settings() {
   const { data, update, status, retrySync } = useWorkspace();
   const [tab, setTab] = useState('church');
   const [restoring, setRestoring] = useState<WorkspaceData | null>(null);
-  const [resetting, setResetting] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const save = (event: FormEvent<HTMLFormElement>) => {
@@ -105,10 +103,7 @@ export default function Settings() {
                       <input name="name" defaultValue={data.settings.name} required maxLength={80} />
                     </FormField>
                     <FormField label="Account email">
-                      <input
-                        value={user?.mode === 'demo' ? 'Local demo — no account needed' : user?.email || ''}
-                        disabled
-                      />
+                      <input value={user?.email || ''} disabled />
                     </FormField>
                     <div className="settings-divider" />
                     <FormField
@@ -229,18 +224,10 @@ export default function Settings() {
                 <div className="backend-status">
                   <div>
                     <Cloud size={20} />
-                    <strong>
-                      {user?.mode === 'demo' ? 'Local demo workspace' : 'BreadBackend cloud workspace'}
-                    </strong>
-                    <span className="tag">
-                      {user?.mode === 'demo' ? 'THIS DEVICE' : status.toUpperCase()}
-                    </span>
+                    <strong>BreadBackend cloud workspace</strong>
+                    <span className="tag">{status.toUpperCase()}</span>
                   </div>
-                  <p>
-                    {user?.mode === 'demo'
-                      ? 'No demo services or uploads are sent to the backend.'
-                      : backendConfig.baseUrl}
-                  </p>
+                  <p>{backendConfig.baseUrl}</p>
                   {status === 'error' && (
                     <button className="button button-outline button-small" onClick={retrySync}>
                       Try cloud sync again <RotateCcw size={14} />
@@ -278,8 +265,8 @@ export default function Settings() {
                   <div>
                     <h3>Pick up where you left off</h3>
                     <p>
-                      Restore a ProView workspace backup. This replaces the workspace on this account or
-                      device, so save a copy first.
+                      Restore a ProView workspace backup to this cloud account. This replaces your saved
+                      collections and settings, so export a copy first.
                     </p>
                     <button className="button button-outline" onClick={() => input.current?.click()}>
                       <Upload size={16} /> Restore a backup
@@ -301,6 +288,17 @@ export default function Settings() {
                             throw new Error(
                               'That doesn’t look like a valid ProView workspace backup. Nothing has been changed.',
                             );
+                          const localMedia =
+                            parsed.media.some((media) => media.url.startsWith('local:')) ||
+                            parsed.services.some((service) =>
+                              service.items.some((item) =>
+                                item.slides.some((slide) => slide.backgroundUrl?.startsWith('local:')),
+                              ),
+                            );
+                          if (localMedia)
+                            throw new Error(
+                              'This backup contains device-only media from the old demo. Upload the original files to your cloud library and remove local references before restoring it. Nothing has been changed.',
+                            );
                           setRestoring(parsed);
                         } catch (error) {
                           toast(errorMessage(error), 'error');
@@ -312,24 +310,12 @@ export default function Settings() {
                 <div className="settings-info">
                   <Cloud size={20} />
                   <p>
-                    Backups include media references, not uploaded files. Local media works only in the
-                    original browser. Keep copies of your original files; re-upload them when moving devices.
-                    Cloud workspace changes use last-write-wins, so avoid editing the same account on two
+                    Backups include cloud media references, not file bytes. Your uploaded files remain on
+                    BreadBackend and can be used from another device after signing in. Keep original media
+                    files too. Workspace changes use last-write-wins, so avoid editing the same account on two
                     devices at once.
                   </p>
                 </div>
-                {user?.mode === 'demo' && (
-                  <div className="reset-option">
-                    <h3>A fresh look around</h3>
-                    <p>
-                      Reset the demo services, songs, and settings to their original examples. Unreferenced
-                      uploaded files remain in this browser until its site data is cleared.
-                    </p>
-                    <button className="button button-outline" onClick={() => setResetting(true)}>
-                      <RotateCcw size={16} /> Reset local demo
-                    </button>
-                  </div>
-                )}
               </div>
             </>
           )}
@@ -354,8 +340,8 @@ export default function Settings() {
               </span>
             </div>
             <p className="muted">
-              Local files from another browser won’t transfer. Cloud media links still depend on the original
-              files being available.
+              This backup will be saved to your cloud account. Cloud media links depend on the original
+              uploaded files still being available.
             </p>
           </div>
           <div className="modal-footer">
@@ -371,32 +357,6 @@ export default function Settings() {
               }}
             >
               <Check size={16} /> Restore backup
-            </button>
-          </div>
-        </Modal>
-      )}
-      {resetting && (
-        <Modal
-          title="Start the demo fresh?"
-          subtitle="Your changes to the demo will be replaced with the original examples."
-          onClose={() => setResetting(false)}
-        >
-          <div className="modal-fields">
-            <p className="muted">Export a backup first if you’d like to keep anything you’ve made.</p>
-          </div>
-          <div className="modal-footer">
-            <button className="button button-outline" onClick={() => setResetting(false)}>
-              Not now
-            </button>
-            <button
-              className="button button-danger"
-              onClick={() => {
-                update(() => createSeed());
-                setResetting(false);
-                toast('A fresh demo, ready to explore.');
-              }}
-            >
-              <RotateCcw size={16} /> Reset demo
             </button>
           </div>
         </Modal>

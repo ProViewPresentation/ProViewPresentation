@@ -4,7 +4,8 @@ export type User = {
   id: string;
   email: string;
   name: string;
-  mode: 'demo' | 'cloud';
+  mode: 'cloud';
+  churchName?: string;
 };
 export type Slide = {
   id: string;

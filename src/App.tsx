@@ -35,7 +35,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: boolean 
           <EmptyState
             icon={RotateCcw}
             title="Let’s take a little breath."
-            description="Something unexpected happened. Your saved workspace is still on this device. Reload to find your place again."
+            description="Something unexpected happened. Reload to reconnect to your cloud workspace."
             action={
               <button className="button button-dark" onClick={() => window.location.reload()}>
                 Reload ProView <RotateCcw size={16} />

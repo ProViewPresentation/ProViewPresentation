@@ -1,11 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
-import { isWorkspace, loadCloudWorkspace, saveCloudWorkspace } from '../lib/backend';
+import { loadCloudWorkspace, saveCloudWorkspace } from '../lib/backend';
 import { createSeed } from '../lib/seed';
 import type { WorkspaceData, Service } from '../lib/types';
 import { errorMessage } from '../lib/utils';
 
-type SyncStatus = 'loading' | 'local' | 'saving' | 'synced' | 'error';
+type SyncStatus = 'loading' | 'saving' | 'synced' | 'error';
 type WorkspaceValue = {
   data: WorkspaceData;
   available: boolean;
@@ -14,6 +14,7 @@ type WorkspaceValue = {
   update: (change: (previous: WorkspaceData) => WorkspaceData) => void;
   saveService: (service: Service) => void;
   retrySync: () => void;
+  flush: () => Promise<void>;
 };
 const WorkspaceContext = createContext<WorkspaceValue | null>(null);
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
@@ -21,148 +22,141 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<WorkspaceData>(() => createSeed());
   const [status, setStatus] = useState<SyncStatus>('loading');
   const [syncError, setSyncError] = useState('');
-  const [ready, setReady] = useState(false);
   const [available, setAvailable] = useState(false);
   const [revision, setRevision] = useState(0);
-  const docId = useRef<string | null>(null);
-  const canSync = useRef(false);
-  const generation = useRef(0);
-  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const documentId = useRef<string | null>(null);
   const latest = useRef(data);
-  latest.current = data;
+  const changedRevision = useRef(0);
+  const savedRevision = useRef(0);
+  const inFlight = useRef<Promise<void> | null>(null);
+  const mounted = useRef(false);
+  const ready = useRef(false);
+
+  // One serialized writer. Changes made during a request are included in its next pass.
+  // No workspace/backup/demo data is written to localStorage or IndexedDB.
+  const flush = useCallback((): Promise<void> => {
+    if (inFlight.current) return inFlight.current;
+    if (!user || !documentId.current || !ready.current || savedRevision.current >= changedRevision.current) {
+      return Promise.resolve();
+    }
+    if (mounted.current) {
+      setStatus('saving');
+      setSyncError('');
+    }
+    const save = async () => {
+      try {
+        while (savedRevision.current < changedRevision.current) {
+          const snapshot = latest.current;
+          const version = changedRevision.current;
+          await saveCloudWorkspace(user, snapshot, documentId.current);
+          savedRevision.current = version;
+        }
+        if (mounted.current) {
+          setStatus('synced');
+          setSyncError('');
+        }
+      } catch (error) {
+        if (mounted.current) {
+          setStatus('error');
+          setSyncError(
+            `${errorMessage(error)} These changes have not reached the cloud. Keep this page open and retry.`,
+          );
+        }
+        throw error;
+      } finally {
+        inFlight.current = null;
+      }
+    };
+    inFlight.current = save();
+    return inFlight.current;
+  }, [user]);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      // Complete the last accepted edit when navigating away inside the application.
+      mounted.current = false;
+      void flush().catch(() => {});
+    };
+  }, [flush]);
 
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
-    const currentGeneration = ++generation.current;
-    setReady(false);
+    ready.current = false;
+    documentId.current = null;
     setAvailable(false);
     setStatus('loading');
     setSyncError('');
-    docId.current = null;
-    canSync.current = false;
-    const key = `pv.workspace.${user.id}`;
-    let cached: WorkspaceData | null = null;
-    let preferences = {
-      name: user.name,
-      churchName: user.mode === 'demo' ? 'Grace Community' : 'Your church',
-    };
-    try {
-      const raw = JSON.parse(localStorage.getItem(key) || 'null');
-      if (isWorkspace(raw)) cached = raw;
-      preferences = { ...preferences, ...JSON.parse(localStorage.getItem(`pv.setup.${user.id}`) || '{}') };
-    } catch {
-      /* Ignore malformed cache; never send it to the server. */
-    }
-    const initial = cached || createSeed(preferences.churchName, preferences.name);
-    setData(initial);
-    setAvailable(!!cached || user.mode === 'demo');
-    if (user.mode === 'demo') {
-      setStatus('local');
-      setReady(true);
-      return () => {
-        cancelled = true;
-      };
-    }
-    const init = async () => {
+    const initialize = async () => {
       try {
         const cloud = await loadCloudWorkspace(user);
-        if (cancelled || generation.current !== currentGeneration) return;
+        if (cancelled) return;
         if (cloud) {
-          docId.current = cloud.id;
-          // A failed save is kept locally until the user deliberately retries it.
-          const pending = localStorage.getItem(`pv.pending.${user.id}`) === 'true';
-          if (pending && cached) {
-            canSync.current = true;
-            setStatus('error');
-            setSyncError(
-              'You have changes saved on this device that haven’t reached the cloud. Retry sync to upload them.',
-            );
-          } else {
-            setData(cloud.workspace);
-            setStatus('synced');
-            canSync.current = true;
-          }
+          documentId.current = cloud.id;
+          latest.current = cloud.workspace;
         } else {
-          docId.current = await saveCloudWorkspace(user, initial, null);
+          const initial = createSeed(user.churchName || 'Your church', user.name);
+          const id = await saveCloudWorkspace(user, initial, null);
           if (cancelled) return;
-          canSync.current = true;
-          setStatus('synced');
+          documentId.current = id;
+          latest.current = initial;
         }
-        if (!cancelled) setAvailable(true);
+        changedRevision.current = 0;
+        savedRevision.current = 0;
+        ready.current = true;
+        setData(latest.current);
+        setAvailable(true);
+        setStatus('synced');
       } catch (error) {
         if (cancelled) return;
         setStatus('error');
-        setSyncError(`${errorMessage(error)} Changes will stay on this device until you reconnect.`);
-      } finally {
-        if (!cancelled) setReady(true);
+        setSyncError(
+          `${errorMessage(error)} Your cloud workspace has not been replaced. Reconnect and try again.`,
+        );
       }
     };
-    void init();
+    void initialize();
     return () => {
       cancelled = true;
-      generation.current++;
     };
   }, [user]);
 
   useEffect(() => {
-    if (!ready || !user || !available) return;
-    try {
-      localStorage.setItem(`pv.workspace.${user.id}`, JSON.stringify(data));
-    } catch {
-      setSyncError('Local storage is full. Export a backup from Settings before closing this tab.');
-      setStatus('error');
-    }
-  }, [data, ready, user, available]);
-
-  const sync = useCallback(() => {
-    if (!user || user.mode === 'demo' || !ready) return;
-    const currentGeneration = generation.current;
-    const snapshot = latest.current;
-    setStatus('saving');
-    const task = async () => {
-      if (generation.current !== currentGeneration) return;
-      if (!canSync.current) {
-        const cloud = await loadCloudWorkspace(user);
-        docId.current = cloud?.id || null;
-        canSync.current = true;
-      }
-      const id = await saveCloudWorkspace(user, snapshot, docId.current);
-      if (generation.current !== currentGeneration) return;
-      docId.current = id;
-      if (latest.current === snapshot) {
-        localStorage.removeItem(`pv.pending.${user.id}`);
-        setStatus('synced');
-        setSyncError('');
-      }
-    };
-    queue.current = queue.current
-      .catch(() => {})
-      .then(task)
-      .catch((error) => {
-        if (generation.current !== currentGeneration) return;
-        setStatus('error');
-        setSyncError(errorMessage(error));
-      });
-  }, [user, ready]);
+    if (!available || !revision) return;
+    const timer = setTimeout(() => {
+      void flush().catch(() => {});
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [revision, available, flush]);
 
   useEffect(() => {
-    if (!ready || !revision || user?.mode !== 'cloud' || !canSync.current) return;
-    const timer = setTimeout(sync, 800);
-    return () => clearTimeout(timer);
-  }, [revision, ready, user, sync]);
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (changedRevision.current <= savedRevision.current) return;
+      void flush().catch(() => {});
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    const reconnect = () => {
+      void flush().catch(() => {});
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    window.addEventListener('online', reconnect);
+    return () => {
+      window.removeEventListener('beforeunload', beforeUnload);
+      window.removeEventListener('online', reconnect);
+    };
+  }, [flush]);
 
-  const update = useCallback(
-    (change: (previous: WorkspaceData) => WorkspaceData) => {
-      setData((previous) => change(previous));
-      setRevision((value) => value + 1);
-      if (user?.mode === 'cloud') {
-        localStorage.setItem(`pv.pending.${user.id}`, 'true');
-        if (canSync.current) setStatus('saving');
-      }
-    },
-    [user],
-  );
+  const update = useCallback((change: (previous: WorkspaceData) => WorkspaceData) => {
+    if (!ready.current) return;
+    const next = change(latest.current);
+    latest.current = next;
+    changedRevision.current += 1;
+    setData(next);
+    setRevision(changedRevision.current);
+    setStatus('saving');
+  }, []);
   const saveService = useCallback(
     (service: Service) => {
       update((previous) => ({
@@ -176,10 +170,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     },
     [update],
   );
-
+  const retrySync = () => {
+    void flush().catch(() => {});
+  };
   return (
     <WorkspaceContext.Provider
-      value={{ data, available, status, syncError, update, saveService, retrySync: sync }}
+      value={{ data, available, status, syncError, update, saveService, retrySync, flush }}
     >
       {children}
     </WorkspaceContext.Provider>

@@ -1,9 +1,8 @@
 import { useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import { Image as ImageIcon, Plus, Search, Trash2, UploadCloud, Video } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { deleteCloudFile, uploadCloudFile } from '../lib/backend';
-import { removeLocalFile, saveLocalFile, useMediaUrl } from '../lib/media';
+import { useMediaUrl } from '../lib/media';
 import type { Media as MediaType, ServiceItem } from '../lib/types';
 import { cn, errorMessage, formatSize, uid } from '../lib/utils';
 import { EmptyState, IconButton, Modal, Spinner, useToast } from '../components/UI';
@@ -18,7 +17,6 @@ function MediaThumb({ media, full = false }: { media: MediaType; full?: boolean 
   );
 }
 export default function MediaLibrary() {
-  const { user } = useAuth();
   const { data, update } = useWorkspace();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
@@ -50,15 +48,7 @@ export default function MediaLibrary() {
       setProgress(`Adding ${index + 1} of ${files.length}…`);
       const id = uid();
       try {
-        let url: string, filename: string | undefined;
-        if (user?.mode === 'cloud') {
-          const result = await uploadCloudFile(file);
-          url = result.url;
-          filename = result.filename;
-        } else {
-          await saveLocalFile(id, file);
-          url = `local:${id}`;
-        }
+        const { url, filename } = await uploadCloudFile(file);
         const media: MediaType = {
           id,
           name: file.name,
@@ -101,8 +91,7 @@ export default function MediaLibrary() {
     }
     setDeleteBusy(true);
     try {
-      if (deleting.filename && user?.mode === 'cloud') await deleteCloudFile(deleting.filename);
-      else if (deleting.url.startsWith('local:')) await removeLocalFile(deleting.id);
+      if (deleting.filename) await deleteCloudFile(deleting.filename);
       update((previous) => ({
         ...previous,
         media: previous.media.filter((media) => media.id !== deleting.id),
@@ -231,9 +220,8 @@ export default function MediaLibrary() {
       <div className="library-footnote">
         <ImageIcon size={16} />
         <p>
-          {user?.mode === 'demo'
-            ? 'Demo uploads are saved in this browser, not in the cloud. Clearing browser data removes them.'
-            : 'Cloud uploads may have publicly accessible URLs. Only upload media you have permission to share. Avoid private or sensitive recordings.'}{' '}
+          Uploads are saved to your account on BreadBackend, not this device. File URLs may be publicly
+          accessible; only upload media you have permission to share. Avoid private or sensitive recordings.{' '}
           Video backgrounds loop silently; use the media preview for audio playback.
         </p>
       </div>
